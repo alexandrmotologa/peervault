@@ -11,12 +11,18 @@ PeerVault connects two computers directly through WebRTC. Transfers stream memor
 - Direct peer-to-peer transfers over WebRTC DataChannels using public STUN servers
 - End-to-end encryption with XChaCha20-Poly1305 and Argon2id key derivation
 - Ephemeral X25519 Diffie-Hellman handshake for forward secrecy
+- Visual Short Authentication String (SAS) with 4 emojis and 6 digits to verify active connection authenticity
 - Human-readable code phrases formatted as `[number]-[adjective]-[noun]` (for example, `7-copper-falcon`)
-- Terminal QR code rendering for scanning from a second screen or mobile device
-- Memory scrubbing that zeroes encryption keys after transfer
+- Multi-file and mixed folder batch transfers in a single command
+- Zero-disk system clipboard sync (`peervault clip send` and `peervault clip receive`) with auto-clear timer
+- Live file watch mode (`--watch`) that syncs modifications across the open channel in real time
+- Resumable chunked transfers with automatic checkpoint recovery
+- Offline local LAN discovery (`--lan`) over UDP broadcast without internet or external servers
+- Embedded web browser receiver accessible directly from desktop and mobile browsers
+- User configuration file (`config.toml`) managed via `peervault config`
 - Direct stdin and stdout piping for shell workflows
 - Safe directory archiving with built-in path traversal checks
-- Self-contained WebSocket signaling server with in-memory state and automatic room expiry
+- Self-contained WebSocket signaling relay with in-memory state and automatic room expiry
 
 ## Installation
 
@@ -36,20 +42,28 @@ uv sync
 
 ## Quickstart
 
-### 1. Send a file
+### 1. Send files or directories
+
+Send a single file:
 
 ```bash
 peervault send .env.production
 ```
 
+Send multiple files and directories as a batch:
+
+```bash
+peervault send cert.pem key.pem ./configs/
+```
+
 PeerVault displays a code phrase such as `7-copper-falcon` and a terminal QR code:
 
 ```text
-Code: 7-copper-falcon
+Passphrase code: 7-copper-falcon
 Waiting for receiver to connect...
 ```
 
-### 2. Receive a file
+### 2. Receive files
 
 On the receiving machine:
 
@@ -57,9 +71,68 @@ On the receiving machine:
 peervault receive 7-copper-falcon
 ```
 
-The transfer begins automatically once the WebRTC connection establishes.
+PeerVault displays an interactive preview of the incoming file and verifies connection authenticity using the visual SAS code:
 
-### 3. Piping secrets through standard input and output
+```text
+Security Code (SAS): 🦊 ⚡ 💎 🚀  (684-219)
+
+Incoming transfer: cert.pem (1.4 KB)
+Accept file download? [Y/n]: y
+```
+
+To skip the interactive prompt in automated scripts, pass `--yes`:
+
+```bash
+peervault receive 7-copper-falcon --yes
+```
+
+### 3. Clipboard sync
+
+Copy an API key, SSH token, or password directly into the receiver's system clipboard without writing anything to disk:
+
+```bash
+# On sender (reads system clipboard):
+peervault clip send
+
+# On receiver (copies directly to clipboard, clears in 45s):
+peervault clip receive 7-copper-falcon --clear 45
+```
+
+### 4. Live sync / Watch mode
+
+Keep the WebRTC channel open and sync file edits to a remote server or colleague in real time:
+
+```bash
+peervault send .env.local --watch
+```
+
+Whenever you save changes to `.env.local`, PeerVault encrypts and streams the updated version immediately across the existing connection.
+
+### 5. Offline local network transfer (LAN)
+
+If both computers are connected to the same local Wi-Fi or office network, bypass external signaling relays entirely:
+
+```bash
+# On sender:
+peervault send dump.sql --lan
+
+# On receiver:
+peervault receive 7-copper-falcon --lan
+```
+
+Peers discover each other over UDP broadcast on port 8766. No internet connection or public STUN server is required.
+
+### 6. Embedded web browser receiver
+
+Anyone on a phone or machine without Python installed can receive files through a browser. When running the signaling server:
+
+```bash
+peervault server --host 0.0.0.0 --port 8765
+```
+
+Open `http://<server-ip>:8765/` in Chrome, Safari, or Firefox, enter the passphrase code, and download the file directly via browser WebRTC.
+
+### 7. Piping secrets through standard input and output
 
 Send directly from standard input without saving a temporary file:
 
@@ -67,50 +140,53 @@ Send directly from standard input without saving a temporary file:
 echo "DATABASE_URL=postgres://user:secret@db.internal:5432/app" | peervault send -
 ```
 
-On the receiving machine, write directly to standard output or pipe to another program:
+On the receiving machine, write directly to standard output or pipe to another command:
 
 ```bash
 peervault receive 7-copper-falcon - > .env.local
 ```
 
-### 4. Sending directories
+### 8. Configuration file
 
-Pass any folder path to send an in-memory tarball:
+PeerVault supports persistent configuration settings (`config.toml`):
 
 ```bash
-peervault send ./configs/
-```
+# Generate a documented template
+peervault config init
 
-The receiver unpacks the files safely, blocking any entries that attempt directory traversal.
+# View active settings and config location
+peervault config show
+```
 
 ## How it works
 
 1. **Code phrase generation**: The sender creates a random code phrase such as `4-amber-badger`.
-2. **Encrypted signaling**: Both peers connect to an ephemeral WebSocket signaling server. The room ID is a SHA-256 hash of the passphrase and salt, so the relay cannot see the phrase. All SDP offers, answers, and ICE candidates are encrypted with an Argon2id-derived key before transmission.
+2. **Encrypted signaling**: Both peers connect to an ephemeral WebSocket signaling server (or discover each other via LAN UDP broadcast). The room ID is an HMAC blind hash of the passphrase, so the relay cannot see the phrase. All SDP offers, answers, and ICE candidates are encrypted with an Argon2id-derived key before transmission.
 3. **P2P hole punching**: Peers exchange ICE candidates to discover direct public or local IP routes via STUN servers.
-4. **DataChannel establishment**: The machines open an ordered, reliable WebRTC DataChannel. The signaling connection closes immediately.
-5. **In-band forward secrecy**: Peers perform an ephemeral X25519 Diffie-Hellman exchange over the DataChannel, deriving the session key through HKDF-SHA256.
-6. **Encrypted transfer**: Data is split into 64 KB chunks, encrypted with XChaCha20-Poly1305 with unique nonces, and streamed directly between peers.
-7. **Verification and cleanup**: The receiver checks the SHA-256 digest of the reassembled payload. Both peers scrub cryptographic keys from memory.
+4. **DataChannel establishment**: The machines open an ordered, reliable WebRTC DataChannel.
+5. **In-band forward secrecy**: Peers perform an ephemeral X25519 Diffie-Hellman exchange over the DataChannel, deriving the final session key through HKDF-SHA256.
+6. **Visual SAS verification**: Both terminals display identical 4-emoji and 6-digit authentication strings derived from the session key to prevent active MitM tampering.
+7. **Encrypted transfer & checkpointing**: Data is split into 64 KB chunks, encrypted with XChaCha20-Poly1305 with unique nonces, and streamed. If interrupted, the receiver resumes from the last confirmed chunk.
+8. **Integrity verification & memory scrubbing**: The receiver validates the SHA-256 digest of the reassembled payload. Both peers wipe cryptographic keys from memory immediately upon completion.
 
 ## Self-hosting the signaling server
 
-PeerVault includes a standalone WebSocket signaling server. It stores all room state in memory and purges rooms after 5 minutes of inactivity:
+PeerVault includes an in-memory WebSocket signaling server with zero database requirements:
 
 ```bash
 peervault server --host 0.0.0.0 --port 8765
 ```
 
-Clients can point to your relay with the `--relay` flag or the `PEERVAULT_RELAY` environment variable:
+Clients can point to your relay with the `--relay` flag, `config.toml`, or the `PEERVAULT_RELAY` environment variable:
 
 ```bash
 export PEERVAULT_RELAY="wss://relay.example.com"
 peervault send secret.key
 ```
 
-## Security architecture
+## Security specifications
 
-Read the detailed security specifications in [docs/security.md](docs/security.md) and architecture details in [docs/architecture.md](docs/architecture.md).
+Read the full cryptographic threat model in [docs/security.md](docs/security.md) and architecture details in [docs/architecture.md](docs/architecture.md).
 
 ## License
 

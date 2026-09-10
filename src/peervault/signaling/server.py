@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import time
+from http import HTTPStatus
+from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 from websockets.asyncio.server import Server, serve
@@ -13,6 +15,8 @@ from peervault.config import DEFAULT_NETWORK_CONFIG, NetworkConfig
 from peervault.signaling.protocol import Action, Status
 
 logger = logging.getLogger(__name__)
+
+WEB_HTML_PATH = Path(__file__).parent.parent / "web" / "index.html"
 
 
 class SignalingServer:
@@ -192,9 +196,31 @@ class SignalingServer:
             return self._server.server.sockets[0].getsockname()[1]
         return 0
 
+    def process_http_request(self, connection: Any, request: Any) -> Any:
+        """Serves the static WebRTC receiver web page over HTTP on the same port."""
+        if request.headers.get("Upgrade", "").lower() == "websocket":
+            return None
+
+        if request.path in ("/", "/index.html", "/web", "/web/"):
+            if WEB_HTML_PATH.is_file():
+                html_text = WEB_HTML_PATH.read_text(encoding="utf-8")
+                response = connection.respond(HTTPStatus.OK, html_text)
+                try:
+                    del response.headers["Content-Type"]
+                except Exception:
+                    pass
+                response.headers["Content-Type"] = "text/html; charset=utf-8"
+                return response
+        return None
+
     async def start(self, host: str = "0.0.0.0", port: int = 8765) -> Server:
         """Starts the signaling server and background cleanup task."""
-        self._server = await serve(self.handle_connection, host, port)
+        self._server = await serve(
+            self.handle_connection,
+            host,
+            port,
+            process_request=self.process_http_request,
+        )
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("Signaling relay server running on ws://%s:%d", host, port)
         return self._server

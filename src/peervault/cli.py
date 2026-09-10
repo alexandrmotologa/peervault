@@ -140,6 +140,11 @@ def send(
         "--sas/--no-sas",
         help="Display visual Short Authentication String for MitM verification",
     ),
+    lan: bool = typer.Option(
+        False,
+        "--lan",
+        help="Use zero-infrastructure local LAN discovery over UDP broadcast",
+    ),
 ) -> None:
     """Send one or more files, folders, or standard input directly to a peer."""
     console = Console()
@@ -175,8 +180,30 @@ def send(
     console.print()
 
     async def _send_flow() -> None:
+        local_relay = None
+        broadcaster = None
+        effective_relay = relay_url
+
+        if lan:
+            from peervault.crypto.kdf import derive_blind_room_id
+            from peervault.discovery.lan import LANBeaconBroadcaster
+            from peervault.signaling.server import SignalingServer
+
+            blind_room = derive_blind_room_id(code)
+            local_relay = SignalingServer()
+            await local_relay.start("0.0.0.0", 0)
+            local_port = local_relay.port
+            effective_relay = f"ws://127.0.0.1:{local_port}"
+
+            broadcaster = LANBeaconBroadcaster(room_id=blind_room, local_port=local_port)
+            await broadcaster.start()
+            console.print(
+                f"[bold cyan]📡 Local LAN discovery active.[/bold cyan] "
+                f"Broadcasting on UDP port 8766 (relay port {local_port})..."
+            )
+
         signaling = SignalingClient(
-            relay_url=relay_url,
+            relay_url=effective_relay,
             passphrase=code,
             role="sender",
         )
@@ -189,7 +216,7 @@ def send(
             await signaling.wait_for_peer()
             console.print("[green]✓[/green] Peer joined! Negotiating direct WebRTC DataChannel...")
 
-            pc = create_peer_connection(stun_servers=app_cfg.stun_servers)
+            pc = create_peer_connection(stun_servers=[] if lan else app_cfg.stun_servers)
             try:
                 channel = await negotiate_sender(pc, signaling)
                 transport_key = bytes(signaling.transport_base_key)
@@ -262,6 +289,10 @@ def send(
 
         finally:
             await signaling.close()
+            if broadcaster:
+                await broadcaster.stop()
+            if local_relay:
+                await local_relay.stop()
 
     try:
         asyncio.run(_send_flow())
@@ -302,6 +333,11 @@ def receive(
         "--sas/--no-sas",
         help="Display visual Short Authentication String for MitM verification",
     ),
+    lan: bool = typer.Option(
+        False,
+        "--lan",
+        help="Use zero-infrastructure local LAN discovery over UDP broadcast",
+    ),
 ) -> None:
     """Receive a file, folder, batch archive, or standard output stream from a peer."""
     app_cfg = load_configuration()
@@ -340,8 +376,22 @@ def receive(
         return typer.confirm("Accept file download?", default=True)
 
     async def _receive_flow() -> None:
+        effective_relay = relay_url
+
+        if lan:
+            from peervault.crypto.kdf import derive_blind_room_id
+            from peervault.discovery.lan import discover_lan_peer
+
+            blind_room = derive_blind_room_id(code)
+            with console.status("[cyan]Searching for local peer on LAN (UDP port 8766)...[/cyan]"):
+                peer_ip, peer_port = await discover_lan_peer(blind_room, timeout=30.0)
+            console.print(
+                f"[bold green]✓ Discovered peer on LAN:[/bold green] {peer_ip}:{peer_port}"
+            )
+            effective_relay = f"ws://{peer_ip}:{peer_port}"
+
         signaling = SignalingClient(
-            relay_url=relay_url,
+            relay_url=effective_relay,
             passphrase=code,
             role="receiver",
         )
@@ -351,7 +401,7 @@ def receive(
                 await signaling.join()
 
             console.print("[dim]Connecting to sender...[/dim]")
-            pc = create_peer_connection(stun_servers=app_cfg.stun_servers)
+            pc = create_peer_connection(stun_servers=[] if lan else app_cfg.stun_servers)
             try:
                 channel = await negotiate_receiver(pc, signaling)
                 transport_key = bytes(signaling.transport_base_key)

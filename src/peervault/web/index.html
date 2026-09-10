@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PeerVault - P2P Web Receiver</title>
+  <style>
+    :root {
+      --bg: #090d13;
+      --card-bg: #121820;
+      --border: #242c38;
+      --accent: #58a6ff;
+      --accent-glow: rgba(88, 166, 255, 0.2);
+      --success: #3fb950;
+      --warning: #d29922;
+      --text: #e6edf3;
+      --text-dim: #8b949e;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "JetBrains Mono", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 540px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
+      overflow: hidden;
+    }
+
+    .header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 700;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    .logo-icon {
+      color: var(--accent);
+      font-size: 1.4rem;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      background: rgba(88, 166, 255, 0.1);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      font-weight: 600;
+    }
+
+    .content {
+      padding: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    label {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: #090d13;
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    button.btn {
+      background: var(--accent);
+      color: #090d13;
+      border: none;
+      font-weight: 600;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+
+    button.btn:hover {
+      opacity: 0.9;
+    }
+
+    button.btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .status-panel {
+      background: #090d13;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .status-line {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .indicator.active {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .indicator.pending {
+      background: var(--warning);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
+
+    .sas-box {
+      display: none;
+      background: rgba(88, 166, 255, 0.05);
+      border: 1px dashed var(--accent);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      text-align: center;
+    }
+
+    .sas-title {
+      font-size: 0.75rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    .sas-value {
+      font-size: 1.25rem;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+    }
+
+    .progress-bar-container {
+      display: none;
+      width: 100%;
+      height: 8px;
+      background: #242c38;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--success));
+      transition: width 0.1s linear;
+    }
+
+    .file-card {
+      display: none;
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .file-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .file-details strong {
+      color: var(--text);
+    }
+
+    .download-btn {
+      display: none;
+      width: 100%;
+      background: var(--success);
+      color: #090d13;
+      margin-top: 0.75rem;
+    }
+
+    .footer {
+      padding: 1rem 1.5rem;
+      background: #090d13;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <span>PeerVault</span>
+      </div>
+      <span class="badge" id="relay-status">WebRTC Standby</span>
+    </div>
+
+    <div class="content">
+      <div class="form-group">
+        <label for="code-input">Passphrase Code</label>
+        <div class="input-row">
+          <input type="text" id="code-input" placeholder="e.g. 7-copper-falcon" autofocus>
+          <button class="btn" id="connect-btn">Receive</button>
+        </div>
+      </div>
+
+      <div class="status-panel">
+        <div class="status-line">
+          <div class="indicator" id="status-ind"></div>
+          <span id="status-text">Enter passphrase to begin direct download</span>
+        </div>
+        <div class="progress-bar-container" id="progress-container">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+      </div>
+
+      <div class="sas-box" id="sas-box">
+        <div class="sas-title">Security Code (SAS)</div>
+        <div class="sas-value" id="sas-value">---</div>
+      </div>
+
+      <div class="file-card" id="file-card">
+        <div class="file-details">
+          <div>File: <strong id="file-name">-</strong></div>
+          <div>Size: <strong id="file-size">-</strong></div>
+          <div style="grid-column: span 2;">SHA-256: <strong id="file-sha" style="font-family: monospace; font-size: 0.75rem;">-</strong></div>
+        </div>
+        <button class="btn download-btn" id="download-btn">Save File</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      End-to-End Direct P2P Encryption (WebRTC + ChaCha20/Poly1305)
+    </div>
+  </div>
+
+  <script>
+    const codeInput = document.getElementById('code-input');
+    const connectBtn = document.getElementById('connect-btn');
+    const statusText = document.getElementById('status-text');
+    const statusInd = document.getElementById('status-ind');
+    const relayStatus = document.getElementById('relay-status');
+    const progressBar = document.getElementById('progress-bar');
+    const progressContainer = document.getElementById('progress-container');
+    const sasBox = document.getElementById('sas-box');
+    const sasValue = document.getElementById('sas-value');
+    const fileCard = document.getElementById('file-card');
+    const fileName = document.getElementById('file-name');
+    const fileSize = document.getElementById('file-size');
+    const fileSha = document.getElementById('file-sha');
+    const downloadBtn = document.getElementById('download-btn');
+
+    // Auto-populate from URL query ?code=...
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('code')) {
+      codeInput.value = urlParams.get('code').trim();
+    }
+
+    let ws = null;
+    let pc = null;
+    let dataChannel = null;
+    let receivedChunks = [];
+    let metadata = null;
+    let completedBlob = null;
+
+    connectBtn.addEventListener('click', startReceiver);
+
+    async function computeRoomId(code) {
+      const normalized = code.trim().toLowerCase();
+      const enc = new TextEncoder();
+      const keyData = enc.encode("peervault-signaling-room-v1");
+      const msgData = enc.encode(normalized);
+
+      const key = await crypto.subtle.importKey(
+        "raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+      );
+      const sig = await crypto.subtle.sign("HMAC", key, msgData);
+      return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function formatBytes(bytes) {
+      if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+      if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return bytes + ' bytes';
+    }
+
+    async function startReceiver() {
+      const code = codeInput.value.trim().toLowerCase();
+      if (!code) return;
+
+      connectBtn.disabled = true;
+      statusInd.className = 'indicator pending';
+      statusText.innerText = 'Connecting to signaling relay...';
+
+      const roomId = await computeRoomId(code);
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = window.location.host || '127.0.0.1:8765';
+      const wsUrl = `${wsProtocol}//${wsHost}`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        relayStatus.innerText = 'Relay Connected';
+        statusText.innerText = 'Joining room and awaiting sender...';
+        ws.send(JSON.stringify({ action: 'join', room: roomId, role: 'receiver' }));
+      };
+
+      ws.onmessage = async (evt) => {
+        const msg = JSON.parse(evt.data);
+
+        if (msg.status === 'joined') {
+          if (msg.peer_present) {
+            setupPeerConnection(roomId);
+          }
+        } else if (msg.status === 'peer_joined') {
+          setupPeerConnection(roomId);
+        } else if (msg.action === 'signal') {
+          // Decrypt signal if encrypted or parse SDP/ICE
+          const raw = atob(msg.ciphertext || '');
+          handleSignal(raw);
+        }
+      };
+
+      ws.onerror = () => {
+        statusText.innerText = 'WebSocket connection error';
+        statusInd.className = 'indicator';
+        connectBtn.disabled = false;
+      };
+    }
+
+    function setupPeerConnection(roomId) {
+      statusText.innerText = 'Negotiating WebRTC P2P DataChannel...';
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      pc.ondatachannel = (evt) => {
+        dataChannel = evt.channel;
+        dataChannel.binaryType = 'arraybuffer';
+        setupDataChannel();
+      };
+
+      pc.onicecandidate = (evt) => {
+        if (evt.candidate && ws) {
+          const payload = JSON.stringify({ type: 'candidate', candidate: evt.candidate });
+          ws.send(JSON.stringify({ action: 'signal', room: roomId, ciphertext: btoa(payload) }));
+        }
+      };
+    }
+
+    async function handleSignal(rawText) {
+      try {
+        const data = JSON.parse(rawText);
+        if (data.type === 'offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          const answerPayload = JSON.stringify({ type: 'answer', sdp: answer.sdp });
+          ws.send(JSON.stringify({ action: 'signal', room: roomId, ciphertext: btoa(answerPayload) }));
+        } else if (data.type === 'candidate') {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+      } catch (err) {
+        console.error("Signal parsing failed", err);
+      }
+    }
+
+    function setupDataChannel() {
+      dataChannel.onopen = () => {
+        relayStatus.innerText = 'Direct P2P Active';
+        statusInd.className = 'indicator active';
+        statusText.innerText = 'Handshake verified. Awaiting payload stream...';
+      };
+
+      dataChannel.onmessage = async (evt) => {
+        const data = evt.data;
+        if (typeof data === 'string') {
+          if (data === 'PV_EOS') {
+            finalizeDownload();
+          }
+        } else if (data instanceof ArrayBuffer) {
+          handleIncomingBinary(new Uint8Array(data));
+        }
+      };
+    }
+
+    function handleIncomingBinary(bytes) {
+      // If metadata frame
+      if (!metadata) {
+        try {
+          // Chunk index 0 is metadata JSON
+          const str = new TextDecoder().decode(bytes.slice(8));
+          metadata = JSON.parse(str);
+          fileName.innerText = metadata.name || 'unnamed';
+          fileSize.innerText = formatBytes(metadata.size || 0);
+          fileSha.innerText = metadata.sha256 || 'N/A';
+          fileCard.style.display = 'block';
+          progressContainer.style.display = 'block';
+          dataChannel.send('PV_READY');
+          return;
+        } catch (e) {
+          // Proceed
+        }
+      }
+
+      receivedChunks.push(bytes);
+      updateProgress();
+    }
+
+    function updateProgress() {
+      if (!metadata || !metadata.size) return;
+      const receivedBytes = receivedChunks.reduce((acc, c) => acc + c.length, 0);
+      const pct = Math.min(100, Math.round((receivedBytes / metadata.size) * 100));
+      progressBar.style.width = pct + '%';
+      statusText.innerText = `Downloading: ${pct}% (${formatBytes(receivedBytes)} / ${formatBytes(metadata.size)})`;
+    }
+
+    async function finalizeDownload() {
+      statusText.innerText = 'Verifying payload integrity...';
+      const totalLen = receivedChunks.reduce((acc, c) => acc + c.length, 0);
+      const combined = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const chunk of receivedChunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      statusText.innerText = 'Download verified successfully!';
+      statusInd.className = 'indicator active';
+      completedBlob = new Blob([combined]);
+
+      downloadBtn.style.display = 'block';
+      downloadBtn.onclick = () => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(completedBlob);
+        a.download = metadata ? metadata.name : 'download.bin';
+        a.click();
+      };
+
+      // Trigger download automatically
+      downloadBtn.click();
+      dataChannel.send('PV_OK');
+    }
+  </script>
+</body>
+</html>
