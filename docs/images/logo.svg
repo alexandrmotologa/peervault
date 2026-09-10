@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="squircle-clip">
+      <rect x="24" y="24" width="976" height="976" rx="220" />
+    </clipPath>
+
+    <linearGradient id="cyan-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <linearGradient id="cyan-soft" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <linearGradient id="core-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a5f3fc"/>
+      <stop offset="50%" stop-color="#00f5ff"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+
+    <linearGradient id="slate-plate-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+
+    <linearGradient id="slate-plate-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <filter id="subtle-shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#0f172a" flood-opacity="0.16" />
+    </filter>
+  </defs>
+
+  <!-- Luxury White Squircle Container -->
+  <rect x="24" y="24" width="976" height="976" rx="220" fill="#ffffff" stroke="#e2e8f0" stroke-width="6" />
+
+  <g clip-path="url(#squircle-clip)">
+    <g transform="translate(512, 512)" filter="url(#subtle-shadow)">
+
+      <!-- Hexagonal Architectural Gateway Frame -->
+      <polygon points="
+        0,-400
+        346,-200
+        346,200
+        0,400
+        -346,200
+        -346,-200
+      " fill="none" stroke="#0f172a" stroke-width="36" stroke-linejoin="round" />
+
+      <!-- Dashed Electric Cyan Inner Telemetry Ring -->
+      <polygon points="
+        0,-364
+        315,-182
+        315,182
+        0,364
+        -315,182
+        -315,-182
+      " fill="none" stroke="#00f5ff" stroke-width="4" opacity="0.45" stroke-dasharray="16, 12" />
+
+      <!-- Sub-Hexagonal Grid Accents at 6 vertices -->
+      <circle cx="0" cy="-400" r="8" fill="#00f5ff" />
+      <circle cx="346" cy="-200" r="8" fill="#00f5ff" />
+      <circle cx="346" cy="200" r="8" fill="#00f5ff" />
+      <circle cx="0" cy="400" r="8" fill="#00f5ff" />
+      <circle cx="-346" cy="200" r="8" fill="#00f5ff" />
+      <circle cx="-346" cy="-200" r="8" fill="#00f5ff" />
+
+      <!-- ==================================================== -->
+      <!-- MASCOT: THE VAULT PANGOLIN (85% Mass, Origami Geometry) -->
+      <!-- ==================================================== -->
+
+      <!-- Back Carapace Outer Defensive Shell (Silhouette & Volume) -->
+      <!-- Tier 3: Bottom Interlocking Armor Base -->
+      <polygon points="0,290 -120,230 -190,140 -90,170 0,220" fill="#1e293b" />
+      <polygon points="0,290 120,230 190,140 90,170 0,220" fill="#0b0f19" />
+
+      <!-- Base Tail Shield Terminal Key -->
+      <polygon points="0,290 -60,335 0,360" fill="#334155" />
+      <polygon points="0,290 60,335 0,360" fill="#0f172a" />
+      <polygon points="0,360 -40,340 0,315" fill="#00f5ff" opacity="0.8" />
+      <polygon points="0,360 40,340 0,315" fill="#0284c7" opacity="0.8" />
+
+      <!-- Tier 2: Flank & Shoulder Carapace Plates -->
+      <!-- Left Upper Flank Plate -->
+      <polygon points="-120,-110 -250,-10 -220,110 -130,80 -100,-20" fill="#334155" />
+      <!-- Left Mid Armored Segment -->
+      <polygon points="-100,-20 -130,80 -190,140 -90,170 -60,80" fill="#475569" />
+
+      <!-- Right Upper Flank Plate -->
+      <polygon points="120,-110 250,-10 220,110 130,80 100,-20" fill="#0f172a" />
+      <!-- Right Mid Armored Segment -->
+      <polygon points="100,-20 130,80 190,140 90,170 60,80" fill="#1e293b" />
+
+      <!-- Armor Rivets / Structural Nodes along Flanks -->
+      <circle cx="-210" cy="50" r="4" fill="#00f5ff" opacity="0.7" />
+      <circle cx="-160" cy="120" r="4" fill="#00f5ff" opacity="0.7" />
+      <circle cx="210" cy="50" r="4" fill="#00f5ff" opacity="0.7" />
+      <circle cx="160" cy="120" r="4" fill="#00f5ff" opacity="0.7" />
+
+      <!-- Tier 1: Mantle & Dorsal Neck Shield -->
+      <polygon points="0,-180 -150,-140 -200,-50 -120,-110 0,-130" fill="#475569" />
+      <polygon points="0,-180 150,-140 200,-50 120,-110 0,-130" fill="#1e293b" />
+
+      <!-- Dorsal Interlocking Ridge Scale 1 (Upper Center) -->
+      <polygon points="0,-130 -90,-80 0,-40" fill="#64748b" />
+      <polygon points="0,-130 90,-80 0,-40" fill="#1e293b" />
+
+      <!-- Dorsal Interlocking Ridge Scale 2 (Mid Center) -->
+      <polygon points="0,-40 -100,-20 -60,80 0,50" fill="#475569" />
+      <polygon points="0,-40 100,-20 60,80 0,50" fill="#182234" />
+
+      <!-- Dorsal Interlocking Ridge Scale 3 (Lower Center Shield) -->
+      <polygon points="0,50 -60,80 -90,170 0,220" fill="#334155" />
+      <polygon points="0,50 60,80 90,170 0,220" fill="#0f172a" />
+
+      <!-- Ears: Alert Angular Armor Scutes -->
+      <!-- Left Ear -->
+      <polygon points="-80,-190 -160,-275 -110,-175" fill="#334155" stroke="#1e293b" stroke-width="2" />
+      <polygon points="-90,-195 -145,-260 -115,-185" fill="url(#cyan-glow)" />
+      <!-- Right Ear -->
+      <polygon points="80,-190 160,-275 110,-175" fill="#0f172a" stroke="#0b0f19" stroke-width="2" />
+      <polygon points="90,-195 145,-260 115,-185" fill="url(#cyan-glow)" />
+
+      <!-- Head Structure (Snout, Crown, Jaw) -->
+      <!-- Crown Plate -->
+      <polygon points="0,-250 -75,-190 0,-170" fill="#64748b" />
+      <polygon points="0,-250 75,-190 0,-170" fill="#1e293b" />
+
+      <!-- Forehead Apex -->
+      <polygon points="0,-250 -35,-290 0,-280" fill="#475569" />
+      <polygon points="0,-250 35,-290 0,-280" fill="#1e293b" />
+
+      <!-- Upper Snout Facets -->
+      <polygon points="0,-170 -70,-190 -55,-125 0,-140" fill="#475569" />
+      <polygon points="0,-170 70,-190 55,-125 0,-140" fill="#1e293b" />
+
+      <!-- Mid Snout / Nasal Bridge -->
+      <polygon points="0,-140 -55,-125 -35,-65 0,-75" fill="#64748b" />
+      <polygon points="0,-140 55,-125 35,-65 0,-75" fill="#182234" />
+
+      <!-- Lower Snout Tip / Jaw -->
+      <polygon points="0,-75 -35,-65 0,-30" fill="#334155" />
+      <polygon points="0,-75 35,-65 0,-30" fill="#0f172a" />
+      <polygon points="0,-30 -18,-45 0,-52" fill="#00f5ff" />
+      <polygon points="0,-30 18,-45 0,-52" fill="#0284c7" />
+
+      <!-- Sensory Optics: Angular Electric Cyan Eyes -->
+      <!-- Left Eye -->
+      <polygon points="-40,-135 -65,-128 -48,-115 -35,-122" fill="#00f5ff" />
+      <polygon points="-40,-135 -48,-115 -35,-122" fill="#e0f2fe" />
+      <!-- Left Brow Shield -->
+      <polygon points="-38,-137 -68,-130 -55,-140" fill="#1e293b" />
+
+      <!-- Right Eye -->
+      <polygon points="40,-135 65,-128 48,-115 35,-122" fill="#00f5ff" />
+      <polygon points="40,-135 48,-115 35,-122" fill="#e0f2fe" />
+      <!-- Right Brow Shield -->
+      <polygon points="38,-137 68,-130 55,-140" fill="#0b0f19" />
+
+      <!-- ==================================================== -->
+      <!-- CENTRAL VAULT CORE: THE SHIELDED CIPHER APERTURE -->
+      <!-- (Represents Zero-Knowledge Cryptographic Lock) -->
+      <!-- ==================================================== -->
+      <!-- Outer Hex Lock Housing -->
+      <polygon points="
+        0,60
+        65,95
+        65,165
+        0,200
+        -65,165
+        -65,95
+      " fill="#0b0f19" stroke="#00f5ff" stroke-width="3" stroke-linejoin="round" />
+
+      <!-- Inner Glowing Core Facets -->
+      <polygon points="0,75 50,102 50,158 0,185 -50,158 -50,102" fill="#0f172a" />
+
+      <!-- Cryptographic Keyhole / Shield Core -->
+      <polygon points="0,88 35,108 0,130" fill="url(#core-glow)" />
+      <polygon points="0,88 -35,108 0,130" fill="#00f5ff" />
+
+      <polygon points="0,130 25,145 15,172 -15,172 -25,145" fill="url(#cyan-glow)" />
+      <polygon points="0,130 0,172 15,172 25,145" fill="#0284c7" />
+
+      <!-- Micro Lock Core Aperture Center -->
+      <circle cx="0" cy="130" r="7" fill="#ffffff" />
+      <circle cx="0" cy="130" r="3.5" fill="#0f172a" />
+
+    </g>
+  </g>
+</svg>

@@ -1,6 +1,27 @@
-# peervault
+<p align="center">
+  <img src="docs/images/logo.png?raw=true" alt="PeerVault Logo" width="140" style="border-radius: 28px;" />
+</p>
 
-Peer-to-peer file transfer and secret sharing CLI using WebRTC DataChannels and authenticated encryption.
+<h1 align="center">PeerVault</h1>
+
+<p align="center">
+  <strong>Direct peer-to-peer ephemeral secret sharing and file transfer over WebRTC.</strong><br />
+  Memory-to-memory streaming with end-to-end authenticated encryption, zero server persistence, and zero disk leaks.
+</p>
+
+<p align="center">
+  <a href="https://github.com/alexandrmotologa/peervault/actions"><img src="https://img.shields.io/badge/tests-40%20passed-success?style=flat-square&logo=githubactions&logoColor=white" alt="Tests" /></a>
+  <img src="https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue?style=flat-square&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/p2p-WebRTC%20DataChannel-blueviolet?style=flat-square" alt="WebRTC" />
+  <img src="https://img.shields.io/badge/crypto-ChaCha20--Poly1305%20%2B%20X25519-0ea5e9?style=flat-square" alt="Crypto" />
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
+</p>
+
+<p align="center">
+  <img src="docs/images/terminal_transfer.png?raw=true" alt="PeerVault Terminal P2P Transfer CLI" width="850" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.4);" />
+</p>
+
+## Overview
 
 When sharing production keys, SSL certificates, or local database dumps, uploading them to team chat or pastebins leaves plaintext copies on external servers. Setting up cloud buckets or SSH access takes time and requires firewall changes.
 
@@ -131,6 +152,11 @@ peervault server --host 0.0.0.0 --port 8765
 ```
 
 Open `http://<server-ip>:8765/` in Chrome, Safari, or Firefox, enter the passphrase code, and download the file directly via browser WebRTC.
+
+<p align="center">
+  <img src="docs/images/web_receiver.png?raw=true" alt="PeerVault WebRTC Browser Receiver" width="560" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.4);" />
+</p>
+
 
 ### 7. Piping secrets through standard input and output
 
