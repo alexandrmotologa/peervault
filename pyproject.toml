@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "peervault"
+version = "0.1.0"
+description = "Peer-to-peer ephemeral secret sharing and environment sync CLI"
+readme = "README.md"
+authors = [
+    { name = "Alexandr Motologa", email = "alexandr@motologa.com" }
+]
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "aiortc>=1.15.0",
+    "cryptography>=44.0.0",
+    "rich>=13.0.0",
+    "segno>=1.6.0",
+    "typer>=0.12.0",
+    "websockets>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.5.0",
+]
+
+[project.scripts]
+peervault = "peervault.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/peervault"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["tests"]
+pythonpath = ["src"]
