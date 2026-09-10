@@ -32,6 +32,29 @@ def create_directory_archive(source_dir: Path) -> bytes:
     return buffer.getvalue()
 
 
+def create_batch_archive(paths: List[Path]) -> bytes:
+    """Recursively packages multiple files and directories into an in-memory tar.gz archive."""
+    buffer = io.BytesIO()
+    with tarfile.open(mode="w:gz", fileobj=buffer) as tar:
+        for p in paths:
+            path_obj = p.resolve()
+            if not path_obj.exists():
+                raise FileNotFoundError(f"Path does not exist: {p}")
+            if path_obj.is_dir():
+                for root, dirs, files in os.walk(path_obj):
+                    rel_dir = os.path.relpath(root, path_obj.parent)
+                    if rel_dir != ".":
+                        tar.add(root, arcname=rel_dir, recursive=False)
+                    for file in files:
+                        full_path = os.path.join(root, file)
+                        rel_file = os.path.relpath(full_path, path_obj.parent)
+                        tar.add(full_path, arcname=rel_file, recursive=False)
+            else:
+                tar.add(str(path_obj), arcname=path_obj.name, recursive=False)
+
+    return buffer.getvalue()
+
+
 def is_safe_path(base_dir: Path, target_path: Path) -> bool:
     """Verifies that target_path strictly resolves within base_dir."""
     try:

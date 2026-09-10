@@ -15,12 +15,42 @@ class ChecksumMismatchError(Exception):
     """Raised when transferred payload SHA-256 does not match sender's digest."""
 
 
+class TransferRejectedError(Exception):
+    """Raised when the receiver declines the transfer."""
+
+
+def get_unique_path(target: Path) -> Path:
+    """Returns an unused path by appending (1), (2), etc. if the file or directory exists."""
+    if not target.exists():
+        return target
+
+    parent = target.parent
+    if target.is_dir() or target.name.endswith(".tar.gz"):
+        base_name = (
+            target.name.replace(".tar.gz", "") if target.name.endswith(".tar.gz") else target.name
+        )
+        suffix = ".tar.gz" if target.name.endswith(".tar.gz") else ""
+    else:
+        base_name = target.stem
+        suffix = target.suffix
+
+    counter = 1
+    while True:
+        candidate = parent / f"{base_name} ({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 async def receive_payload(
     dest_path: Optional[str],
     stream: DataChannelStream,
     progress_callback: Optional[Callable[[int, int], None]] = None,
+    confirm_callback: Optional[Callable[[Dict[str, Union[str, int]]], bool]] = None,
+    auto_accept: bool = False,
+    overwrite: bool = False,
 ) -> Dict[str, Union[str, int, List[str]]]:
-    """Receives and verifies an incoming stream from a DataChannelStream."""
+    """Receives, previews, and verifies an incoming stream from a DataChannelStream."""
     # 1. Read metadata frame (index 0)
     meta_frame = await stream.read_frame(timeout=30.0)
     chunk_index, meta_json = stream.cipher.decrypt_chunk(meta_frame)
@@ -33,25 +63,33 @@ async def receive_payload(
     expected_size = metadata.get("size", 0)
     expected_sha256 = metadata.get("sha256", "")
 
-    # 2. Determine destination
     is_pipe = dest_path == "-"
+
+    # 2. Interactive confirmation prompt
+    if confirm_callback and not auto_accept and not is_pipe:
+        accepted = confirm_callback(metadata)
+        if not accepted:
+            await stream.send_frame(b"PV_REJECT:Declined by receiver")
+            raise TransferRejectedError("Transfer was declined by user")
+
+    # 3. Determine destination and safe overwrite handling
     archive_buffer: Optional[io.BytesIO] = None
     file_handle = None
     final_destination: Optional[Path] = None
 
     if is_pipe:
-        # Pipe directly to stdout
         pass
     elif mode == "archive":
-        # Buffer tar.gz in memory for safe extraction
         archive_buffer = io.BytesIO()
         if dest_path:
             final_destination = Path(dest_path).resolve()
         else:
             folder_name = suggested_name.replace(".tar.gz", "")
             final_destination = Path(folder_name).resolve()
+
+        if final_destination.exists() and not overwrite:
+            final_destination = get_unique_path(final_destination)
     else:
-        # Single file
         if dest_path:
             dest_file = Path(dest_path).resolve()
             if dest_file.is_dir():
@@ -59,14 +97,17 @@ async def receive_payload(
         else:
             dest_file = Path(suggested_name).resolve()
 
+        if dest_file.exists() and not overwrite:
+            dest_file = get_unique_path(dest_file)
+
         dest_file.parent.mkdir(parents=True, exist_ok=True)
         final_destination = dest_file
         file_handle = open(dest_file, "wb")
 
-    # 3. Send ready confirmation
+    # 4. Send ready confirmation
     await stream.send_frame(b"PV_READY")
 
-    # 4. Stream receiving loop
+    # 5. Stream receiving loop
     hasher = hashlib.sha256()
     bytes_received = 0
     expected_chunk_index = 1
@@ -105,19 +146,19 @@ async def receive_payload(
         if file_handle is not None:
             file_handle.close()
 
-    # 5. Checksum verification
+    # 6. Checksum verification
     computed_sha256 = hasher.hexdigest()
     if expected_sha256 and computed_sha256 != expected_sha256:
         raise ChecksumMismatchError(
             f"Checksum mismatch! Expected: {expected_sha256}, Got: {computed_sha256}"
         )
 
-    # 6. If archive mode, extract safely
+    # 7. Safe extraction for archive mode
     extracted_files: List[str] = []
     if mode == "archive" and archive_buffer is not None and final_destination is not None:
         extracted_files = extract_archive_safely(archive_buffer.getvalue(), final_destination)
 
-    # 7. Send OK verification ACK
+    # 8. Send OK verification ACK
     await stream.send_frame(b"PV_OK")
 
     return {

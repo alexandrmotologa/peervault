@@ -116,6 +116,11 @@ class DataChannelStream:
             raise RuntimeError("Handshake has not been performed; cipher not available")
         return self._cipher
 
+    @property
+    def session_key(self) -> Optional[bytearray]:
+        """Returns the derived session key or None if handshake has not finished."""
+        return self._session_key
+
     async def send_frame(self, frame: bytes) -> None:
         """Sends a raw binary frame, respecting flow control backpressure."""
         if self._closed:

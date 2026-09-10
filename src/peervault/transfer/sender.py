@@ -1,34 +1,57 @@
-"""Sender transfer coordinator for files, directories, and piped standard input."""
+"""Sender transfer coordinator for files, directories, batch items, and piped standard input."""
 
 import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
 from peervault.config import DEFAULT_CRYPTO_CONFIG, CryptoConfig
 from peervault.p2p.channel import EOS_FRAME, DataChannelStream
-from peervault.transfer.archive import create_directory_archive
+from peervault.transfer.archive import create_batch_archive, create_directory_archive
 
 
 class TransferError(Exception):
-    """Raised when transfer protocol fails or gets rejected."""
+    """Raised when transfer protocol fails."""
+
+
+class TransferRejectedError(TransferError):
+    """Raised when receiver explicitly declines the transfer."""
 
 
 async def send_payload(
-    source: str,
+    source: Union[str, List[str], Path, List[Path]],
     stream: DataChannelStream,
     crypto_config: CryptoConfig = DEFAULT_CRYPTO_CONFIG,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> Dict[str, Union[str, int]]:
-    """Streams a file, directory, or standard input across an established DataChannelStream.
-
-    Returns transfer summary information including mode, name, size, and sha256 hash.
-    """
+    """Streams a file, directory, batch items, or stdin across an established DataChannelStream."""
     hasher = hashlib.sha256()
 
-    # Case 1: Standard input pipe
-    if source == "-":
+    # Normalize source
+    if isinstance(source, (list, tuple)) and len(source) == 1:
+        source = source[0]
+
+    # Case 1: Multiple items (batch mode)
+    if isinstance(source, (list, tuple)):
+        path_list = [Path(p).resolve() for p in source]
+        for p in path_list:
+            if not p.exists():
+                raise FileNotFoundError(f"Source does not exist: {p}")
+
+        mode = "archive"
+        name = f"batch_{len(path_list)}_items.tar.gz"
+        tar_bytes = create_batch_archive(path_list)
+        total_size = len(tar_bytes)
+        hasher.update(tar_bytes)
+        sha256_hex = hasher.hexdigest()
+
+        def data_generator():
+            for i in range(0, total_size, crypto_config.chunk_size):
+                yield tar_bytes[i : i + crypto_config.chunk_size]
+
+    # Case 2: Standard input pipe
+    elif str(source) == "-":
         mode = "pipe"
         name = "stdin.data"
         raw_data = sys.stdin.buffer.read()
@@ -40,12 +63,12 @@ async def send_payload(
             for i in range(0, total_size, crypto_config.chunk_size):
                 yield raw_data[i : i + crypto_config.chunk_size]
 
+    # Case 3: Single file or single directory
     else:
         src_path = Path(source).resolve()
         if not src_path.exists():
             raise FileNotFoundError(f"Source does not exist: {source}")
 
-        # Case 2: Directory transfer
         if src_path.is_dir():
             mode = "archive"
             name = src_path.name + ".tar.gz"
@@ -58,13 +81,11 @@ async def send_payload(
                 for i in range(0, total_size, crypto_config.chunk_size):
                     yield tar_bytes[i : i + crypto_config.chunk_size]
 
-        # Case 3: Single file transfer
         else:
             mode = "file"
             name = src_path.name
             total_size = src_path.stat().st_size
 
-            # Compute hash upfront
             with open(src_path, "rb") as f:
                 while chunk := f.read(128 * 1024):
                     hasher.update(chunk)
@@ -88,6 +109,12 @@ async def send_payload(
 
     # 2. Await ready acknowledgement from receiver
     ready_frame = await stream.read_frame(timeout=30.0)
+    if ready_frame.startswith(b"PV_REJECT"):
+        reason = ready_frame.decode("utf-8", errors="replace")
+        if ":" in reason:
+            reason = reason.split(":", 1)[1]
+        raise TransferRejectedError(f"Receiver declined transfer: {reason}")
+
     if ready_frame != b"PV_READY":
         raise TransferError(f"Receiver did not send ready ACK, got: {ready_frame!r}")
 

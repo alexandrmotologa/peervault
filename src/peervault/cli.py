@@ -2,13 +2,18 @@
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from rich.console import Console
 
 from peervault import __version__
-from peervault.config import DEFAULT_NETWORK_CONFIG
+from peervault.config import (
+    generate_default_config_toml,
+    get_default_config_path,
+    load_configuration,
+)
+from peervault.crypto.sas import compute_sas
 from peervault.p2p.channel import DataChannelStream
 from peervault.p2p.connection import create_peer_connection, negotiate_receiver, negotiate_sender
 from peervault.signaling.client import SignalingClient
@@ -25,11 +30,59 @@ app = typer.Typer(
     add_completion=False,
 )
 
+config_app = typer.Typer(
+    name="config",
+    help="Manage PeerVault configuration and default settings.",
+)
+app.add_typer(config_app, name="config")
+
 
 @app.command()
 def version() -> None:
     """Show PeerVault version."""
     typer.echo(f"peervault version {__version__}")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Display active configuration settings and configuration file path."""
+    console = Console()
+    path = get_default_config_path()
+    cfg = load_configuration()
+
+    status_label = "[green](exists)[/green]" if path.is_file() else "[dim](using defaults)[/dim]"
+    console.print(f"[bold]Config File:[/bold] {path} {status_label}")
+    console.print()
+    console.print(f"  [bold cyan]Relay URL:[/bold cyan]         {cfg.relay_url}")
+    console.print(f"  [bold cyan]STUN Servers:[/bold cyan]      {', '.join(cfg.stun_servers)}")
+    console.print(f"  [bold cyan]Chunk Size:[/bold cyan]        {cfg.chunk_size:,} bytes")
+    console.print(f"  [bold cyan]Auto Accept:[/bold cyan]       {cfg.auto_accept}")
+    console.print(f"  [bold cyan]Overwrite:[/bold cyan]         {cfg.overwrite}")
+    if cfg.default_output_dir:
+        console.print(f"  [bold cyan]Default Output:[/bold cyan]    {cfg.default_output_dir}")
+
+
+@config_app.command("init")
+def config_init(
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Overwrite existing configuration file"
+    ),
+) -> None:
+    """Generate a default documented configuration file."""
+    console = Console()
+    path = get_default_config_path()
+
+    if path.is_file() and not force:
+        console.print(
+            f"[bold yellow]Warning:[/bold yellow] Configuration file already exists at {path}."
+        )
+        console.print("Use '--force' to overwrite it.")
+        raise typer.Exit(code=1)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    template = generate_default_config_toml()
+    path.write_text(template, encoding="utf-8")
+    console.print(f"[bold green]✓ Configuration file created at:[/bold green] {path}")
 
 
 @app.command()
@@ -51,9 +104,9 @@ def server(
 
 @app.command()
 def send(
-    path: str = typer.Argument(..., help="Path to file, directory, or '-' for stdin"),
-    relay: str = typer.Option(
-        DEFAULT_NETWORK_CONFIG.default_relay_url,
+    paths: List[str] = typer.Argument(..., help="Path(s) to file(s), directory, or '-' for stdin"),
+    relay: Optional[str] = typer.Option(
+        None,
         "--relay",
         "-r",
         help="WebSocket signaling relay URL",
@@ -64,9 +117,16 @@ def send(
         "-c",
         help="Custom passphrase code (auto-generated if omitted)",
     ),
+    sas: bool = typer.Option(
+        True,
+        "--sas/--no-sas",
+        help="Display visual Short Authentication String for MitM verification",
+    ),
 ) -> None:
-    """Send a file, folder, or standard input directly to a peer."""
+    """Send one or more files, folders, or standard input directly to a peer."""
     console = Console()
+    app_cfg = load_configuration()
+    relay_url = relay or app_cfg.relay_url
 
     if code is None:
         code = generate_code()
@@ -79,9 +139,13 @@ def send(
             )
             raise typer.Exit(code=1)
 
-    if path != "-" and not Path(path).exists():
-        console.print(f"[bold red]Error:[/bold red] Source path '{path}' does not exist.")
-        raise typer.Exit(code=1)
+    # Validate paths if not stdin
+    is_pipe = len(paths) == 1 and paths[0] == "-"
+    if not is_pipe:
+        for p in paths:
+            if not Path(p).exists():
+                console.print(f"[bold red]Error:[/bold red] Source path '{p}' does not exist.")
+                raise typer.Exit(code=1)
 
     console.print()
     console.print(f"[bold]Passphrase code:[/bold] [bold cyan]{code}[/bold cyan]")
@@ -94,7 +158,7 @@ def send(
 
     async def _send_flow() -> None:
         signaling = SignalingClient(
-            relay_url=relay,
+            relay_url=relay_url,
             passphrase=code,
             role="sender",
         )
@@ -107,7 +171,7 @@ def send(
             await signaling.wait_for_peer()
             console.print("[green]✓[/green] Peer joined! Negotiating direct WebRTC DataChannel...")
 
-            pc = create_peer_connection()
+            pc = create_peer_connection(stun_servers=app_cfg.stun_servers)
             try:
                 channel = await negotiate_sender(pc, signaling)
                 transport_key = bytes(signaling.transport_base_key)
@@ -120,6 +184,18 @@ def send(
                     await stream.perform_handshake(transport_key)
                     console.print("[green]✓[/green] Encrypted session established (AEAD + X25519).")
 
+                    # Display SAS verification code
+                    if sas and stream.session_key:
+                        sas_code = compute_sas(stream.session_key)
+                        console.print(
+                            f"[bold cyan]Security Code (SAS):[/bold cyan] "
+                            f"[bold yellow]{sas_code.display}[/bold yellow]"
+                        )
+                        console.print(
+                            "[dim]Verify that the receiver shows the exact same code.[/dim]"
+                        )
+                        console.print()
+
                     # Stream transfer with progress bar
                     progress = create_transfer_progress()
                     task_id = progress.add_task("Sending payload...", total=None)
@@ -129,9 +205,10 @@ def send(
                             progress.update(task_id, total=total)
                         progress.update(task_id, completed=current)
 
+                    payload_source = paths[0] if len(paths) == 1 else paths
                     with progress:
                         result = await send_payload(
-                            source=path,
+                            source=payload_source,
                             stream=stream,
                             progress_callback=update_progress,
                         )
@@ -166,15 +243,37 @@ def receive(
         None,
         help="Destination directory, output filename, or '-' for stdout",
     ),
-    relay: str = typer.Option(
-        DEFAULT_NETWORK_CONFIG.default_relay_url,
+    relay: Optional[str] = typer.Option(
+        None,
         "--relay",
         "-r",
         help="WebSocket signaling relay URL",
     ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Accept incoming transfer without interactive prompt",
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Overwrite existing files instead of generating a unique name",
+    ),
+    sas: bool = typer.Option(
+        True,
+        "--sas/--no-sas",
+        help="Display visual Short Authentication String for MitM verification",
+    ),
 ) -> None:
-    """Receive a file, folder, or standard output stream from a peer."""
-    is_pipe = destination == "-"
+    """Receive a file, folder, batch archive, or standard output stream from a peer."""
+    app_cfg = load_configuration()
+    relay_url = relay or app_cfg.relay_url
+    auto_accept = yes or app_cfg.auto_accept
+    allow_overwrite = overwrite or app_cfg.overwrite
+
+    dest_target = destination or app_cfg.default_output_dir
+    is_pipe = dest_target == "-"
     console = get_console(use_stderr=is_pipe)
 
     # Strip URI prefix if present
@@ -189,9 +288,23 @@ def receive(
         )
         raise typer.Exit(code=1)
 
+    def interactive_confirm(metadata: dict) -> bool:
+        size = metadata.get("size", 0)
+        size_str = f"{size:,} bytes"
+        if size >= 1024 * 1024:
+            size_str = f"{size / (1024 * 1024):.1f} MB"
+        elif size >= 1024:
+            size_str = f"{size / 1024:.1f} KB"
+
+        name = metadata.get("name", "unnamed")
+        console.print(
+            f"\n[bold yellow]Incoming transfer:[/bold yellow] [bold]{name}[/bold] ({size_str})"
+        )
+        return typer.confirm("Accept file download?", default=True)
+
     async def _receive_flow() -> None:
         signaling = SignalingClient(
-            relay_url=relay,
+            relay_url=relay_url,
             passphrase=code,
             role="receiver",
         )
@@ -201,7 +314,7 @@ def receive(
                 await signaling.join()
 
             console.print("[dim]Connecting to sender...[/dim]")
-            pc = create_peer_connection()
+            pc = create_peer_connection(stun_servers=app_cfg.stun_servers)
             try:
                 channel = await negotiate_receiver(pc, signaling)
                 transport_key = bytes(signaling.transport_base_key)
@@ -214,6 +327,18 @@ def receive(
                     await stream.perform_handshake(transport_key)
                     console.print("[green]✓[/green] Encrypted session established (AEAD + X25519).")
 
+                    # Display SAS verification code
+                    if sas and stream.session_key and not is_pipe:
+                        sas_code = compute_sas(stream.session_key)
+                        console.print(
+                            f"[bold cyan]Security Code (SAS):[/bold cyan] "
+                            f"[bold yellow]{sas_code.display}[/bold yellow]"
+                        )
+                        console.print(
+                            "[dim]Verify that the sender terminal shows the exact same code.[/dim]"
+                        )
+                        console.print()
+
                     progress = create_transfer_progress(use_stderr=is_pipe)
                     task_id = progress.add_task("Receiving payload...", total=None)
 
@@ -224,9 +349,12 @@ def receive(
 
                     with progress:
                         result = await receive_payload(
-                            dest_path=destination,
+                            dest_path=dest_target,
                             stream=stream,
                             progress_callback=update_progress,
+                            confirm_callback=interactive_confirm,
+                            auto_accept=auto_accept,
+                            overwrite=allow_overwrite,
                         )
 
                     if not is_pipe:
