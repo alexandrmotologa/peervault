@@ -107,7 +107,7 @@ async def send_payload(
     meta_frame = stream.cipher.encrypt_chunk(0, meta_json)
     await stream.send_frame(meta_frame)
 
-    # 2. Await ready acknowledgement from receiver
+    # 2. Await ready acknowledgement from receiver (or resume request)
     ready_frame = await stream.read_frame(timeout=30.0)
     if ready_frame.startswith(b"PV_REJECT"):
         reason = ready_frame.decode("utf-8", errors="replace")
@@ -115,7 +115,10 @@ async def send_payload(
             reason = reason.split(":", 1)[1]
         raise TransferRejectedError(f"Receiver declined transfer: {reason}")
 
-    if ready_frame != b"PV_READY":
+    start_chunk = 1
+    if ready_frame.startswith(b"PV_RESUME:"):
+        start_chunk = int(ready_frame.decode("utf-8").split(":")[1])
+    elif ready_frame != b"PV_READY":
         raise TransferError(f"Receiver did not send ready ACK, got: {ready_frame!r}")
 
     # 3. Stream encrypted chunks
@@ -126,8 +129,9 @@ async def send_payload(
         progress_callback(bytes_sent, total_size)
 
     for chunk in data_generator():
-        chunk_frame = stream.cipher.encrypt_chunk(chunk_index, chunk)
-        await stream.send_frame(chunk_frame)
+        if chunk_index >= start_chunk:
+            chunk_frame = stream.cipher.encrypt_chunk(chunk_index, chunk)
+            await stream.send_frame(chunk_frame)
         bytes_sent += len(chunk)
         chunk_index += 1
         if progress_callback:
@@ -148,3 +152,45 @@ async def send_payload(
         "sha256": sha256_hex,
         "chunks": chunk_index - 1,
     }
+
+
+async def send_file_update(
+    content: bytes,
+    name: str,
+    stream: DataChannelStream,
+    crypto_config: CryptoConfig = DEFAULT_CRYPTO_CONFIG,
+) -> Dict[str, Union[str, int]]:
+    """Sends an incremental live update for an open DataChannelStream."""
+    await stream.send_frame(b"PV_UPDATE")
+
+    hasher = hashlib.sha256(content)
+    total_size = len(content)
+    sha256_hex = hasher.hexdigest()
+
+    metadata = {
+        "mode": "file",
+        "name": name,
+        "size": total_size,
+        "sha256": sha256_hex,
+    }
+    meta_json = json.dumps(metadata).encode("utf-8")
+    meta_frame = stream.cipher.encrypt_chunk(0, meta_json)
+    await stream.send_frame(meta_frame)
+
+    ready = await stream.read_frame(timeout=30.0)
+    if not ready.startswith(b"PV_READY") and not ready.startswith(b"PV_RESUME:"):
+        raise TransferError(f"Receiver rejected live update: {ready!r}")
+
+    chunk_index = 1
+    for i in range(0, total_size, crypto_config.chunk_size):
+        chunk = content[i : i + crypto_config.chunk_size]
+        chunk_frame = stream.cipher.encrypt_chunk(chunk_index, chunk)
+        await stream.send_frame(chunk_frame)
+        chunk_index += 1
+
+    await stream.send_frame(EOS_FRAME)
+    ack = await stream.read_frame(timeout=30.0)
+    if ack != b"PV_OK":
+        raise TransferError(f"Receiver failed to verify live update: {ack!r}")
+
+    return {"name": name, "size": total_size, "sha256": sha256_hex}

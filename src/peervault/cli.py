@@ -19,8 +19,14 @@ from peervault.p2p.connection import create_peer_connection, negotiate_receiver,
 from peervault.signaling.client import SignalingClient
 from peervault.signaling.server import run_server
 from peervault.signaling.words import generate_code, validate_code
+from peervault.transfer.clipboard import (
+    auto_clear_clipboard,
+    get_clipboard_text,
+    set_clipboard_text,
+)
 from peervault.transfer.receiver import receive_payload
-from peervault.transfer.sender import send_payload
+from peervault.transfer.sender import send_file_update, send_payload
+from peervault.transfer.watcher import FileWatcher
 from peervault.ui.progress import create_transfer_progress, get_console
 from peervault.ui.qr import display_terminal_qr
 
@@ -35,6 +41,12 @@ config_app = typer.Typer(
     help="Manage PeerVault configuration and default settings.",
 )
 app.add_typer(config_app, name="config")
+
+clip_app = typer.Typer(
+    name="clip",
+    help="Direct clipboard-to-clipboard secret sync without touching disk.",
+)
+app.add_typer(clip_app, name="clip")
 
 
 @app.command()
@@ -116,6 +128,12 @@ def send(
         "--code",
         "-c",
         help="Custom passphrase code (auto-generated if omitted)",
+    ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        "-w",
+        help="Keep connection open and sync file modifications in real time",
     ),
     sas: bool = typer.Option(
         True,
@@ -218,6 +236,25 @@ def send(
                     console.print(f"  Name:    {result['name']}")
                     console.print(f"  Size:    {result['size']:,} bytes")
                     console.print(f"  SHA-256: [cyan]{result['sha256']}[/cyan]")
+
+                    # Live Watch Mode
+                    if watch and len(paths) == 1 and not is_pipe and Path(paths[0]).is_file():
+                        watch_file = Path(paths[0])
+                        console.print(
+                            f"\n[bold cyan]👀 Watch mode active:[/bold cyan] "
+                            f"Monitoring {watch_file.name} (Ctrl+C to stop)..."
+                        )
+                        watcher = FileWatcher(watch_file)
+                        async for new_content, new_sha in watcher.watch():
+                            console.print(
+                                f"[dim]File changed, syncing {len(new_content):,} bytes...[/dim]"
+                            )
+                            await send_file_update(new_content, watch_file.name, stream)
+                            console.print(
+                                f"[bold green]✓ Live update sent![/bold green] "
+                                f"(SHA-256: [cyan]{new_sha[:12]}...[/cyan])"
+                            )
+
                 finally:
                     await stream.close()
             finally:
@@ -367,6 +404,30 @@ def receive(
                         if result.get("extracted_files"):
                             file_count = len(result["extracted_files"])
                             console.print(f"  Extracted:   {file_count} files unpacked")
+
+                        # Await live updates if sender keeps channel alive
+                        while stream.channel.readyState == "open":
+                            try:
+                                frame = await stream.read_frame(timeout=0.5)
+                            except TimeoutError:
+                                continue
+                            except Exception:
+                                break
+
+                            if frame == b"PV_UPDATE":
+                                console.print(
+                                    "\n[bold yellow]⚡ Incoming live update...[/bold yellow]"
+                                )
+                                update_res = await receive_payload(
+                                    dest_path=dest_target,
+                                    stream=stream,
+                                    auto_accept=True,
+                                    overwrite=True,
+                                )
+                                console.print(
+                                    f"[bold green]✓ Live update saved to[/bold green] "
+                                    f"{update_res['destination']}"
+                                )
                 finally:
                     await stream.close()
             finally:
@@ -383,6 +444,215 @@ def receive(
     except Exception as err:
         console.print(f"\n[bold red]Transfer failed:[/bold red] {err}")
         raise typer.Exit(code=1)
+
+
+@clip_app.command("send")
+def clip_send(
+    relay: Optional[str] = typer.Option(
+        None,
+        "--relay",
+        "-r",
+        help="WebSocket signaling relay URL",
+    ),
+    code: Optional[str] = typer.Option(
+        None,
+        "--code",
+        "-c",
+        help="Custom passphrase code (auto-generated if omitted)",
+    ),
+    sas: bool = typer.Option(
+        True,
+        "--sas/--no-sas",
+        help="Display visual Short Authentication String for MitM verification",
+    ),
+) -> None:
+    """Send system clipboard text directly to a peer."""
+    console = Console()
+    try:
+        text = get_clipboard_text()
+    except Exception as err:
+        console.print(f"[bold red]Clipboard error:[/bold red] {err}")
+        raise typer.Exit(code=1)
+
+    if not text.strip():
+        console.print("[bold yellow]Warning:[/bold yellow] Clipboard is empty.")
+        raise typer.Exit(code=1)
+
+    app_cfg = load_configuration()
+    relay_url = relay or app_cfg.relay_url
+
+    if code is None:
+        code = generate_code()
+    else:
+        code = code.strip().lower()
+        if not validate_code(code):
+            console.print(f"[bold red]Error:[/bold red] '{code}' is invalid.")
+            raise typer.Exit(code=1)
+
+    console.print()
+    console.print(f"[bold]Passphrase code:[/bold] [bold cyan]{code}[/bold cyan]")
+    console.print(f"[dim]Captured {len(text)} characters from clipboard.[/dim]")
+    console.print()
+    display_terminal_qr(f"peervault:{code}")
+    console.print()
+
+    async def _clip_send_flow() -> None:
+        signaling = SignalingClient(relay_url=relay_url, passphrase=code, role="sender")
+        try:
+            with console.status("[cyan]Connecting to signaling relay...[/cyan]"):
+                await signaling.connect()
+                await signaling.join()
+
+            console.print("[dim]Waiting for receiver...[/dim]")
+            await signaling.wait_for_peer()
+
+            pc = create_peer_connection(stun_servers=app_cfg.stun_servers)
+            try:
+                channel = await negotiate_sender(pc, signaling)
+                transport_key = bytes(signaling.transport_base_key)
+                stream = DataChannelStream(channel)
+                try:
+                    await stream.perform_handshake(transport_key)
+                    if sas and stream.session_key:
+                        sas_code = compute_sas(stream.session_key)
+                        console.print(
+                            f"[bold cyan]Security Code (SAS):[/bold cyan] "
+                            f"[bold yellow]{sas_code.display}[/bold yellow]\n"
+                        )
+
+                    # Send text payload as memory pipe
+                    import io
+
+                    old_stdin = io.BytesIO(text.encode("utf-8"))
+                    old_sys_stdin = import_sys_stdin_buffer()
+                    try:
+                        import sys
+
+                        sys.stdin.buffer.read = old_stdin.read
+                        await send_payload("-", stream)
+                    finally:
+                        sys.stdin.buffer.read = old_sys_stdin
+
+                    console.print(
+                        "[bold green]✓ Clipboard secret delivered successfully![/bold green]"
+                    )
+                finally:
+                    await stream.close()
+            finally:
+                await pc.close()
+        finally:
+            await signaling.close()
+
+    def import_sys_stdin_buffer():
+        import sys
+
+        return sys.stdin.buffer.read
+
+    try:
+        asyncio.run(_clip_send_flow())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        raise typer.Exit(code=130)
+
+
+@clip_app.command("receive")
+def clip_receive(
+    code: str = typer.Argument(..., help="Passphrase code (e.g. '7-copper-falcon')"),
+    clear: int = typer.Option(
+        45,
+        "--clear",
+        help="Seconds before auto-clearing clipboard (0 to disable)",
+    ),
+    relay: Optional[str] = typer.Option(
+        None,
+        "--relay",
+        "-r",
+        help="WebSocket signaling relay URL",
+    ),
+    sas: bool = typer.Option(
+        True,
+        "--sas/--no-sas",
+        help="Display visual Short Authentication String",
+    ),
+) -> None:
+    """Receive a secret directly into the system clipboard."""
+    console = Console()
+    app_cfg = load_configuration()
+    relay_url = relay or app_cfg.relay_url
+
+    code = code.strip().lower()
+    if code.startswith("peervault:"):
+        code = code[len("peervault:") :]
+
+    if not validate_code(code):
+        console.print(f"[bold red]Error:[/bold red] '{code}' is invalid.")
+        raise typer.Exit(code=1)
+
+    async def _clip_receive_flow() -> None:
+        signaling = SignalingClient(relay_url=relay_url, passphrase=code, role="receiver")
+        try:
+            with console.status("[cyan]Connecting to signaling relay...[/cyan]"):
+                await signaling.connect()
+                await signaling.join()
+
+            console.print("[dim]Connecting to sender...[/dim]")
+            pc = create_peer_connection(stun_servers=app_cfg.stun_servers)
+            try:
+                channel = await negotiate_receiver(pc, signaling)
+                transport_key = bytes(signaling.transport_base_key)
+                stream = DataChannelStream(channel)
+                try:
+                    await stream.perform_handshake(transport_key)
+                    if sas and stream.session_key:
+                        sas_code = compute_sas(stream.session_key)
+                        console.print(
+                            f"[bold cyan]Security Code (SAS):[/bold cyan] "
+                            f"[bold yellow]{sas_code.display}[/bold yellow]\n"
+                        )
+
+                    # Read payload into memory
+                    meta_frame = await stream.read_frame(timeout=30.0)
+                    _, meta_json = stream.cipher.decrypt_chunk(meta_frame)
+                    await stream.send_frame(b"PV_READY")
+
+                    chunks = []
+                    while True:
+                        frame = await stream.read_frame(timeout=30.0)
+                        if frame == b"PV_EOS":
+                            break
+                        _, chunk = stream.cipher.decrypt_chunk(frame)
+                        chunks.append(chunk)
+
+                    await stream.send_frame(b"PV_OK")
+                    secret_text = b"".join(chunks).decode("utf-8", errors="replace")
+
+                    set_clipboard_text(secret_text)
+                    console.print(
+                        f"[bold green]✓ Secret copied to clipboard![/bold green] "
+                        f"({len(secret_text)} characters)"
+                    )
+
+                    if clear > 0:
+                        console.print(f"[dim]Clipboard will clear in {clear} seconds.[/dim]")
+                        await auto_clear_clipboard(
+                            secret_text,
+                            timeout_seconds=clear,
+                            on_cleared=lambda: console.print(
+                                "\n[dim yellow]Clipboard cleared for security.[/dim yellow]"
+                            ),
+                        )
+                finally:
+                    await stream.close()
+            finally:
+                await pc.close()
+        finally:
+            await signaling.close()
+
+    try:
+        asyncio.run(_clip_receive_flow())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        raise typer.Exit(code=130)
 
 
 def main() -> None:

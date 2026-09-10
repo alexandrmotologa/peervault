@@ -7,8 +7,10 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
+from peervault.config import DEFAULT_CRYPTO_CONFIG, CryptoConfig
 from peervault.p2p.channel import EOS_FRAME, DataChannelStream
 from peervault.transfer.archive import extract_archive_safely
+from peervault.transfer.checkpoint import TransferCheckpoint
 
 
 class ChecksumMismatchError(Exception):
@@ -49,8 +51,9 @@ async def receive_payload(
     confirm_callback: Optional[Callable[[Dict[str, Union[str, int]]], bool]] = None,
     auto_accept: bool = False,
     overwrite: bool = False,
+    crypto_config: CryptoConfig = DEFAULT_CRYPTO_CONFIG,
 ) -> Dict[str, Union[str, int, List[str]]]:
-    """Receives, previews, and verifies an incoming stream from a DataChannelStream."""
+    """Receives, previews, resumes, and verifies an incoming stream from a DataChannelStream."""
     # 1. Read metadata frame (index 0)
     meta_frame = await stream.read_frame(timeout=30.0)
     chunk_index, meta_json = stream.cipher.decrypt_chunk(meta_frame)
@@ -76,6 +79,7 @@ async def receive_payload(
     archive_buffer: Optional[io.BytesIO] = None
     file_handle = None
     final_destination: Optional[Path] = None
+    checkpoint: Optional[TransferCheckpoint] = None
 
     if is_pipe:
         pass
@@ -102,16 +106,37 @@ async def receive_payload(
 
         dest_file.parent.mkdir(parents=True, exist_ok=True)
         final_destination = dest_file
-        file_handle = open(dest_file, "wb")
+        checkpoint = TransferCheckpoint(
+            target_file=dest_file,
+            expected_sha256=expected_sha256,
+            total_size=expected_size,
+            chunk_size=crypto_config.chunk_size,
+        )
 
-    # 4. Send ready confirmation
-    await stream.send_frame(b"PV_READY")
-
-    # 5. Stream receiving loop
+    # 4. Check for resumption opportunity
     hasher = hashlib.sha256()
     bytes_received = 0
     expected_chunk_index = 1
 
+    if checkpoint is not None:
+        resume_chunk = checkpoint.get_resume_chunk_index()
+        if resume_chunk and resume_chunk > 1:
+            # Resuming from part file
+            expected_chunk_index = resume_chunk
+            bytes_received = (resume_chunk - 1) * crypto_config.chunk_size
+            # Pre-hash existing bytes
+            with open(checkpoint.part_file, "rb") as pf:
+                while chk := pf.read(128 * 1024):
+                    hasher.update(chk)
+            file_handle = open(checkpoint.part_file, "ab")
+            await stream.send_frame(f"PV_RESUME:{resume_chunk}".encode("utf-8"))
+        else:
+            file_handle = open(checkpoint.part_file, "wb")
+            await stream.send_frame(b"PV_READY")
+    else:
+        await stream.send_frame(b"PV_READY")
+
+    # 5. Stream receiving loop
     if progress_callback:
         progress_callback(bytes_received, expected_size)
 
@@ -138,6 +163,8 @@ async def receive_payload(
                 archive_buffer.write(plaintext)
             elif file_handle is not None:
                 file_handle.write(plaintext)
+                if checkpoint is not None:
+                    checkpoint.record_chunk(idx)
 
             if progress_callback:
                 progress_callback(bytes_received, expected_size)
@@ -153,12 +180,16 @@ async def receive_payload(
             f"Checksum mismatch! Expected: {expected_sha256}, Got: {computed_sha256}"
         )
 
-    # 7. Safe extraction for archive mode
+    # 7. Promote part file to destination
+    if checkpoint is not None:
+        final_destination = checkpoint.finalize()
+
+    # 8. Safe extraction for archive mode
     extracted_files: List[str] = []
     if mode == "archive" and archive_buffer is not None and final_destination is not None:
         extracted_files = extract_archive_safely(archive_buffer.getvalue(), final_destination)
 
-    # 8. Send OK verification ACK
+    # 9. Send OK verification ACK
     await stream.send_frame(b"PV_OK")
 
     return {
