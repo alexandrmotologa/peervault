@@ -49,6 +49,27 @@ clip_app = typer.Typer(
 app.add_typer(clip_app, name="clip")
 
 
+def version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"peervault version {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        help="Show PeerVault version and exit.",
+        callback=version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Direct peer-to-peer secret sharing and environment sync over WebRTC."""
+    pass
+
+
 @app.command()
 def version() -> None:
     """Show PeerVault version."""

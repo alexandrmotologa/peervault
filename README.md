@@ -18,6 +18,10 @@
 </p>
 
 <p align="center">
+  <img src="docs/images/peervault_demo.gif?raw=true" alt="PeerVault Walkthrough Demo" width="850" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.4);" />
+</p>
+
+<p align="center">
   <img src="docs/images/terminal_transfer.png?raw=true" alt="PeerVault Terminal P2P Transfer CLI" width="850" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.4);" />
 </p>
 
